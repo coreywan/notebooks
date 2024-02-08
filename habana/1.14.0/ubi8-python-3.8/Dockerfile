@@ -11,6 +11,7 @@ ARG ARTIFACTORY_URL="vault.habana.ai"
 ARG VERSION="1.14.0"
 ARG REVISION="493"
 ARG PT_VERSION="2.1.1"
+ARG TF_VERSION="2.15.0"
 
 USER root
 
@@ -149,7 +150,29 @@ RUN mkdir -p /var/run/sshd && \
 ## Install habana tensorflow
 # Reference: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/tensorflow/Dockerfile.rhel8.6
 # For AML/CentOS/RHEL OS'es TFIO_DATAPATH have to be specified to import tensorflow_io lib correctly
-ENV TFIO_DATAPATH=/opt/app-root/src/python3.8/site-packages/
+
+ENV TF_MODULES_RELEASE_BUILD=/usr/lib/habanalabs/
+ENV PYTHONPATH=/root:/usr/lib/habanalabs/
+
+# Install unzip to extract pre-trained weights for BERT demo
+RUN dnf install -y \
+        bc \
+        protobuf-devel \
+        libffi-devel \
+        bzip2-devel && \
+    dnf clean all && rm -rf /var/cache/dnf
+
+COPY install-python310.sh install-python310.sh
+RUN ./install-python310.sh $BASE_NAME
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+RUN python3.10 -m pip install habana_media_loader=="${VERSION}"."${REVISION}" && \
+    python3.10 -m pip install tensorflow-cpu==${TF_VERSION} && \
+    python3.10 -m pip install habana-tensorflow=="${VERSION}"."${REVISION}" && \
+    python3.10 -m pip install habana-horovod=="${VERSION}"."${REVISION}"
+
+# For AML/CentOS/RHEL OS'es TFIO_DATAPATH have to be specified to import tensorflow_io lib correctly
+ENV TFIO_DATAPATH=/usr/local/lib64/python3.10/site-packages/
 
 # For AML/CentOS/RHEL ca-cert file is expected exactly under /etc/ssl/certs/ca-certificates.crt
 # otherwise curl will fail during access to S3 AWS storage
