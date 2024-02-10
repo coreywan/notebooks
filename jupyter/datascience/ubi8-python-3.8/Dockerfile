@@ -18,6 +18,9 @@ COPY Pipfile.lock ./
 # Copy Elyra setup to utils so that it's sourced at startup
 COPY setup-elyra.sh ./utils/
 
+
+RUN pip install micropipenv
+
 RUN echo "Installing softwares and packages" && \
     micropipenv install && \
     rm -f ./Pipfile.lock

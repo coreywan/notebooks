@@ -15,6 +15,12 @@ ARG TF_VERSION="2.15.0"
 
 USER root
 
+## From: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/base/Dockerfile.rhel8.6
+LABEL vendor="Habanalabs Ltd."
+LABEL release="${VERSION}-${REVISION}"
+
+COPY LICENSE /licenses/
+
 RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
     dnf clean all && rm -rf /var/cache/yum
 
@@ -53,13 +59,11 @@ RUN dnf install -y \
     git \
     mesa-libGL \
     iproute \
-    micropipenv \
     python3-dnf-plugin-versionlock && \
     # update pkgs (except OS version) for resolving potentials CVEs
     dnf versionlock add redhat-release* && \
     dnf update -y && \
     dnf clean all && rm -rf /var/cache/yum
-
 
 COPY install_efa.sh .
 RUN ./install_efa.sh && rm install_efa.sh && rm -rf /etc/ld.so.conf.d/efa.conf /etc/profile.d/efa.sh
@@ -99,20 +103,6 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV RDMA_CORE_ROOT=/opt/habanalabs/rdma-core/src
 ENV RDMA_CORE_LIB=${RDMA_CORE_ROOT}/build/lib
 
-# Install python packages 
-# RUN python3.8 -m pip install hpu_media_loader=="${VERSION}"."${REVISION}"
-# Install Python packages and Jupyterlab extensions from Pipfile.lock
-COPY Pipfile.lock ./
-
-RUN echo "Installing softwares and packages" && micropipenv install && rm -f ./Pipfile.lock
-
-RUN echo "export LANG=en_US.UTF-8" >> /root/.bashrc
-RUN export LANG=en_US.UTF-8
-ENV GC_KERNEL_PATH=/usr/lib/habanalabs/libtpc_kernels.so
-ENV HABANA_LOGS=/var/log/habana_logs/
-ENV HABANA_SCAL_BIN_PATH=/opt/habanalabs/engines_fw
-ENV HABANA_PLUGINS_LIB_PATH=/opt/habanalabs/habana_plugins
-
 RUN wget -nv -O /tmp/libfabric-${LIBFABRIC_VERSION}.tar.bz2 https://github.com/ofiwg/libfabric/releases/download/v${LIBFABRIC_VERSION}/libfabric-${LIBFABRIC_VERSION}.tar.bz2 && \
     cd /tmp/ && tar xf /tmp/libfabric-${LIBFABRIC_VERSION}.tar.bz2 && \
     cd /tmp/libfabric-${LIBFABRIC_VERSION} && \
@@ -144,42 +134,22 @@ RUN mkdir -p /var/run/sshd && \
     ssh-keygen -A && \
     mkdir -p /var/run/sshd && echo "/usr/sbin/sshd -p 3022" | tee -a ~/.bashrc
 
+RUN echo "export LANG=en_US.UTF-8" >> /root/.bashrc
+RUN export LANG=en_US.UTF-8
+ENV GC_KERNEL_PATH=/usr/lib/habanalabs/libtpc_kernels.so
+ENV HABANA_LOGS=/var/log/habana_logs/
+ENV HABANA_SCAL_BIN_PATH=/opt/habanalabs/engines_fw
+ENV HABANA_PLUGINS_LIB_PATH=/opt/habanalabs/habana_plugins
 
 
 
-## Install habana tensorflow
-# Reference: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/tensorflow/Dockerfile.rhel8.6
-# For AML/CentOS/RHEL OS'es TFIO_DATAPATH have to be specified to import tensorflow_io lib correctly
 
-ENV TF_MODULES_RELEASE_BUILD=/usr/lib/habanalabs/
-ENV PYTHONPATH=/root:/usr/lib/habanalabs/
 
-# Install unzip to extract pre-trained weights for BERT demo
-RUN dnf install -y \
-        bc \
-        protobuf-devel \
-        libffi-devel \
-        bzip2-devel && \
-    dnf clean all && rm -rf /var/cache/dnf
+####### From: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/pytorch/Dockerfile.rhel8.6
+LABEL name="PyTorch Installer"
+LABEL summary="Habanalabs PyTorch installer layer for RHEL8.6"
+LABEL description="Image with pre installed Habanalabs packages for PyTorch"
 
-COPY install-python310.sh install-python310.sh
-RUN ./install-python310.sh $BASE_NAME
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-
-RUN python3.10 -m pip install habana_media_loader=="${VERSION}"."${REVISION}" && \
-    python3.10 -m pip install tensorflow-cpu==${TF_VERSION} && \
-    python3.10 -m pip install habana-tensorflow=="${VERSION}"."${REVISION}" && \
-    python3.10 -m pip install habana-horovod=="${VERSION}"."${REVISION}"
-
-# For AML/CentOS/RHEL OS'es TFIO_DATAPATH have to be specified to import tensorflow_io lib correctly
-ENV TFIO_DATAPATH=/usr/local/lib64/python3.10/site-packages/
-
-# For AML/CentOS/RHEL ca-cert file is expected exactly under /etc/ssl/certs/ca-certificates.crt
-# otherwise curl will fail during access to S3 AWS storage
-RUN ln -s /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
-
-## Install habana pytorch
-# Reference: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/pytorch/Dockerfile.rhel8.6
 ENV LANG=en_US.UTF-8
 ENV PYTHONPATH=/root:/usr/lib/habanalabs/
 
@@ -196,42 +166,47 @@ RUN dnf install -y \
     gperftools-devel && \
     dnf clean all && rm -rf /var/cache/yum
 
-RUN wget --no-verbose https://"${ARTIFACTORY_URL}"/artifactory/gaudi-pt-modules/"${VERSION}"/"${REVISION}"\
-/pytorch/rhel86/pytorch_modules-v"${PT_VERSION}"_"${VERSION}"_"${REVISION}".tgz && \
-    mkdir /root/habanalabs /root/habanalabs/pytorch_temp && \
-    tar -xf pytorch_modules-v"${PT_VERSION}"_"${VERSION}"_"${REVISION}".tgz -C /root/habanalabs/pytorch_temp/. && \
-    pip3 install /root/habanalabs/pytorch_temp/*.whl && \
-    pip3 install $(grep "lightning" /root/habanalabs/pytorch_temp/requirements-pytorch.txt) && \
-    pip3 install tensorboard~=2.12.2 protobuf==3.20.3 && \
-    pip3 uninstall -y pillow && \
-    pip3 uninstall -y pillow-simd && \
-    pip3 install pillow-simd==7.0.0.post3 && \
-    rm -rf /root/habanalabs/pytorch_temp/ && \
-    rm -rf pytorch_modules-v"${PT_VERSION}"_"${VERSION}"_"${REVISION}".tgz &&\
-    echo "source /etc/profile.d/habanalabs.sh" >> ~/.bashrc
+COPY install_packages.sh .
+
+RUN export BASE_NAME=rhel86 && ./install_packages.sh && rm -f install_packages.sh && \
+    /sbin/ldconfig && echo "source /etc/profile.d/habanalabs.sh" >> ~/.bashrc
 
 ENV LD_PRELOAD=/lib64/libtcmalloc.so.4
 ENV TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD=7516192768
 
-RUN dnf clean all && rm -rf /var/cache/dnf && rm -rf /tmp/*
+RUN rm -rf /tmp/*
 
-## Label the image with details required by ODH
-LABEL name="odh-notebook-habana-jupyter-1.14.0-ubi8-python-3.8" \
-    summary="Jupyter HabanaAI 1.14.0 notebook image for ODH notebooks" \
-    description="Jupyter HabanaAI 1.14.0 notebook image with base Python 3.8 builder image based on ubi8 for ODH notebooks" \
-    io.k8s.display-name="Jupyter HabanaAI 1.14.0 notebook image for ODH notebooks" \
-    io.k8s.description="Jupyter HabanaAI 1.14.0 notebook image with base Python 3.8 builder image based on ubi8 for ODH notebooks" \
-    authoritative-source-url="https://github.com/opendatahub-io/notebooks" \
-    io.openshift.build.commit.ref="main" \
-    io.openshift.build.source-location="https://github.com/opendatahub-io/notebooks/tree/main/habana/1.14.0/ubi8-python-3.8" \
-    io.openshift.build.image="quay.io/opendatahub/workbench-images:habana-jupyter-1.14.0-ubi8-python-3.8"
+####### From: https://github.com/HabanaAI/Setup_and_Install/blob/1.14.0/dockerfiles/tensorflow/Dockerfile.rhel8.6
+LABEL name="Tensorflow Installer (${TF_VERSION})"
+LABEL summary="Habanalabs Tensorflow (${TF_VERSION}) installer layer for RHEL 8.6"
+LABEL description="Image with pre installed Habanalabs packages for Tensorflow-${TF_VERSION}"
 
-# Replace Notebook's launcher, "(ipykernel)" with Python's version 3.x
-RUN sed -i -e "s/Python.*/$(python --version| cut -d '.' -f-2)\",/" /opt/app-root/share/jupyter/kernels/python3/kernel.json && \
-    # Fix permissions to support pip in Openshift environments \
-    chmod -R g+w /opt/app-root/lib/python3.8/site-packages && \
-    fix-permissions /opt/app-root -P
+ENV TF_MODULES_RELEASE_BUILD=/usr/lib/habanalabs/
+ENV PYTHONPATH=/root:/usr/lib/habanalabs/
 
-USER 1001
+# Install unzip to extract pre-trained weights for BERT demo
+RUN dnf install -y \
+        bc \
+        protobuf-devel \
+        libffi-devel \
+        bzip2-devel && \
+    dnf clean all && rm -rf /var/cache/dnf
 
-WORKDIR /opt/app-root/src
+COPY install-python310.sh install-python310.sh
+RUN export BASE_NAME=rhel86 && ./install-python310.sh $BASE_NAME
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+RUN python3.10 -m pip install habana_media_loader=="${VERSION}"."${REVISION}" && \
+    python3.10 -m pip install tensorflow-cpu==${TF_VERSION} && \
+    python3.10 -m pip install habana-tensorflow=="${VERSION}"."${REVISION}" && \
+    python3.10 -m pip install habana-horovod=="${VERSION}"."${REVISION}"
+
+# For AML/CentOS/RHEL OS'es TFIO_DATAPATH have to be specified to import tensorflow_io lib correctly
+ENV TFIO_DATAPATH=/usr/local/lib64/python3.10/site-packages/
+
+# For AML/CentOS/RHEL ca-cert file is expected exactly under /etc/ssl/certs/ca-certificates.crt
+# otherwise curl will fail during access to S3 AWS storage
+RUN ln -s /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
+
+RUN echo "source /etc/profile.d/habanalabs.sh" >> ~/.bashrc && \
+    dnf clean all && rm -rf /var/cache/dnf && rm -rf /tmp/*
